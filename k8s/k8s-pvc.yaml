@@ -1,0 +1,53 @@
+---
+# PostgreSQL PVC (5Gi) - for database storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: petclinic-demo
+  labels:
+    app: petclinic
+    component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3-csi  # Use gp3-csi on AWS
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# Redis PVC (2Gi) - for cache and audit logs
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: petclinic-demo
+  labels:
+    app: petclinic
+    component: cache
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3-csi  # Use gp3-csi on AWS
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+# File Storage PVC (1Gi) - for medical reports and attachments
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: files-pvc
+  namespace: petclinic-demo
+  labels:
+    app: petclinic
+    component: file-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3-csi  # Use gp3-csi on AWS
+  resources:
+    requests:
+      storage: 1Gi

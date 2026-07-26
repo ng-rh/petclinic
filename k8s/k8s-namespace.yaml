@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: petclinic-demo
+  labels:
+    app: petclinic
+    version: "1.0"
+    environment: migration-demo
+  annotations:
+    description: "Namespace for Petclinic Migration Demo (Stateless + Stateful)"
+    contact: "migration-team"
