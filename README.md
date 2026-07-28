@@ -1,380 +1,344 @@
-# 🐾 Petclinic - OpenShift Deployment Guide
+# Petclinic Migration Demo - OpenShift 4.14 to 4.20
 
-## Quick Start - Deploy to OpenShift in 3 Steps
+A complete Spring Boot Petclinic application for demonstrating **OpenShift cluster migration** using **MTC (Migration Toolkit for Containers)** and **OADP (OpenShift API for Data Protection)**.
+
+## Overview
+
+This project demonstrates:
+- ✅ Spring Boot 3.1.5 application deployment on OpenShift
+- ✅ PostgreSQL database with persistent storage
+- ✅ Redis cache deployment
+- ✅ OADP backup and restore workflow
+- ✅ MTC cluster migration (4.14 → 4.20)
+- ✅ Data persistence across restarts and migrations
+- ✅ Auto-seeding with 50+ records (10 owners, 12 pets, 6 vets, 12 visits)
+
+## Project Structure
+
+```
+.
+├── Dockerfile-OpenShift          # Container image definition (Red Hat UBI8)
+├── README.md                      # This file
+├── pom.xml                        # Maven build configuration
+├── k8s/
+│   └── petclinic-complete.yaml   # Complete Kubernetes deployment (all resources)
+├── oadp/
+│   ├── source-dpa.yaml           # OADP DataProtectionApplication (source cluster)
+│   ├── target-dpa.yaml           # OADP DataProtectionApplication (target cluster)
+│   ├── migration-backup.yaml     # Backup resource definition
+│   ├── target-restore.yaml       # Restore resource definition
+│   ├── bucket-credentials.yaml   # S3 bucket credentials (template)
+│   └── target-storage-mapping.yaml # Storage class mapping for migration
+└── src/main/
+    ├── java/org/acme/petclinic/
+    │   ├── DataInitializer.java  # Auto-seed data on first deployment
+    │   ├── PetclinicApplication.java
+    │   ├── entities/             # JPA entities
+    │   ├── repositories/         # Spring Data JPA repositories
+    │   └── resources/            # REST controllers
+    └── resources/
+        ├── application.properties # Spring Boot configuration
+        └── static/index.html      # UI homepage
+```
+
+## Quick Start
 
 ### Prerequisites
-- OpenShift cluster (4.16+) access
-- `oc` CLI configured and logged in
-- Application source code cloned from Git
-- Docker image already pushed to registry: `quay.io/nehgupta/petclinic:1.0.0`
+- OpenShift 4.14+ cluster access
+- `oc` CLI installed
+- Docker/Podman installed (for building images)
+- Maven 3.9+ (for building application)
 
----
-
-## Step 1: Clone Application from Git
+### 1. Deploy on OpenShift (Source or Target Cluster)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/petclinic.git
-cd petclinic
-```
-
-The application already includes:
-- ✅ Spring Boot source code
-- ✅ All Kubernetes manifests (k8s/ directory)
-- ✅ Docker image (pre-built and pushed)
-
----
-
-## Step 2: Deploy All Resources to OpenShift
-
-```bash
-# Login to OpenShift
+# Login to cluster
 oc login --token=YOUR_TOKEN --server=YOUR_SERVER
 
-# Deploy all Kubernetes manifests
-oc apply -f k8s/
+# Apply all resources (namespace, PostgreSQL, Redis, App, RBAC)
+oc apply -f k8s/petclinic-complete.yaml
 
-# This creates:
-# - Namespace: petclinic-demo
-# - Storage: PersistentVolumeClaims
-# - Database: PostgreSQL 16
-# - Application: Spring Boot (2 replicas)
-# - Networking: Service & Route
-# - Security: ServiceAccount + RBAC
-```
-
-### Wait for PostgreSQL to be Ready
-
-```bash
-# Wait for PostgreSQL to be ready (2-3 minutes)
-oc rollout status deployment/postgres -n petclinic-demo
-
-# Verify postgres pod is running
-oc get pods -n petclinic-demo | grep postgres
-```
-
----
-
-## Step 2.5: Create Database in PostgreSQL ⭐ IMPORTANT
-
-PostgreSQL is running but the **petclinic database needs to be created manually**.
-
-```bash
-# Create the petclinic database
-oc exec deployment/postgres -n petclinic-demo -- psql -U postgres -c "CREATE DATABASE petclinic;"
-
-# Verify database was created
-oc exec deployment/postgres -n petclinic-demo -- psql -U postgres -c "\l"
-
-# Expected output: petclinic database should appear in the list
-```
-
-**Note:** The ConfigMap tries to create it, but you need to do it manually if it wasn't created. The tables will be auto-created when the Spring Boot application starts.
-
----
-
-## Step 3: Wait for Application Deployment
-
-```bash
-# Wait for Application to be ready
+# Wait for deployment
 oc rollout status deployment/petclinic-app -n petclinic-demo
 
-# This will:
-# 1. Start the Spring Boot application
-# 2. Connect to PostgreSQL
-# 3. Auto-create tables (via Hibernate)
-# 4. Seed 50+ records (via DataInitializer)
-```
+# Get application URL
+oc get route -n petclinic-demo petclinic-route -o jsonpath='{.spec.host}'
 
----
-
-## Step 4: Access Application
-
-### Get Application URL
-```bash
-oc get route petclinic-route -n petclinic-demo -o jsonpath='{.spec.host}'
-```
-
-### Open in Browser
-```bash
-# Copy the URL from above and paste in browser:
-http://petclinic-route-petclinic-demo.apps.YOUR_CLUSTER_DOMAIN
-```
-
----
-
-## Database Setup Details
-
-### What Gets Created Automatically
-- **PostgreSQL 16 pod** - from Red Hat UBI image
-- **5Gi persistent volume** - for data storage
-- **ConfigMap** - with POSTGRES_DB=petclinic and POSTGRES_USER=postgres
-- **Secret** - with POSTGRES_PASSWORD=petclinicpwd
-
-### What You Need to Do Manually
-
-**Create Database (Step 2.5):**
-```bash
-oc exec deployment/postgres -n petclinic-demo -- psql -U postgres -c "CREATE DATABASE petclinic;"
-```
-
-**Why manually?** - The environment variable `POSTGRES_DB` in some PostgreSQL setups doesn't auto-create the database. It's safer to create it explicitly.
-
-### What Gets Created by Spring Boot App (Automatic)
-
-Once the app starts, it will automatically:
-1. **Connect** to PostgreSQL using credentials from ConfigMap/Secret
-2. **Create tables** via Hibernate (JPA)
-3. **Seed data** via DataInitializer class (50+ records):
-   - 10 Pet Owners
-   - 12 Pets
-   - 6 Veterinarians
-   - 12 Visits
-   - 5 Pet Types
-
-### Database Credentials (from k8s-postgres.yaml)
-
-| Item | Value |
-|------|-------|
-| **Host** | postgres (internal Kubernetes service) |
-| **Port** | 5432 |
-| **Database** | petclinic |
-| **Username** | postgres |
-| **Password** | petclinicpwd |
-| **Storage** | gp3-csi (5Gi persistent volume) |
-
----
-
-## Verification Checklist
-
-### ✅ Check All Pods Running
-```bash
-oc get pods -n petclinic-demo
-
-# Expected output:
-# postgres-xxxxx                  Running (1/1)
-# petclinic-app-xxxxx-1          Running (1/1)
-# petclinic-app-xxxxx-2          Running (1/1)
-```
-
-### ✅ Check Data Seeded in Database
-```bash
+# Verify data seeded
 oc exec deployment/postgres -n petclinic-demo -- psql -U postgres -d petclinic -c "SELECT COUNT(*) FROM owner;"
-
-# Expected: 10 owners
 ```
 
-### ✅ Test REST API
+### 2. Build and Push Docker Image
+
 ```bash
-ROUTE=$(oc get route petclinic-route -n petclinic-demo -o jsonpath='{.spec.host}')
-curl http://$ROUTE/owners | jq
+# Build for AMD64 (OpenShift is x86_64)
+podman build --platform linux/amd64 -f Dockerfile-OpenShift -t petclinic:v1 .
 
-# Expected: JSON array with 10 owners
+# Push to registry
+podman tag petclinic:v1 quay.io/YOUR_ORG/petclinic:v1
+podman push quay.io/YOUR_ORG/petclinic:v1
 ```
 
-### ✅ Check Application is Running
+### 3. Backup with OADP (Source Cluster)
+
 ```bash
-oc logs deployment/petclinic-app -n petclinic-demo --tail=10
+# Ensure OADP is installed
+oc get pods -n openshift-adp
 
-# Look for: "Started PetclinicApplication"
+# Create backup
+oc create -f oadp/migration-backup.yaml
+
+# Monitor backup
+oc get backup -n openshift-adp migration-backup -w
+oc describe backup -n openshift-adp migration-backup
 ```
 
----
+### 4. Restore with OADP (Target Cluster)
 
-## What Gets Created
+```bash
+# Login to target cluster (4.20)
+oc login --server=TARGET_SERVER
 
-### Namespace
-- **petclinic-demo** - Isolated environment for all resources
+# Apply DPA on target
+oc apply -f oadp/target-dpa.yaml
 
-### Storage
-- **postgres-pvc** - 5Gi persistent volume for PostgreSQL data (gp3-csi)
-- **files-pvc** - 1Gi persistent volume for application files
+# Create restore
+oc apply -f oadp/target-restore.yaml
+
+# Monitor restore
+oc get restore -n openshift-adp target-restore -w
+```
+
+## Configuration
 
 ### Database
-- **PostgreSQL 16** - Red Hat UBI certified image
-- **Database Name:** petclinic
-- **Username:** postgres
-- **Password:** petclinicpwd (from Kubernetes secret)
-- **Port:** 5432 (internal)
-- **Auto-seeded Data:**
-  - 10 Pet Owners
-  - 12 Pets
-  - 6 Veterinarians
-  - 12 Visits
+- **Engine:** PostgreSQL 16 (Red Hat UBI image)
+- **Connection:** `jdbc:postgresql://postgres:5432/petclinic`
+- **Credentials:** postgres/petclinicpwd
+- **Storage:** 5Gi PVC (gp3-csi for AWS, Ceph RBD for on-prem)
 
 ### Application
 - **Framework:** Spring Boot 3.1.5
-- **Language:** Java 17
-- **Container Image:** quay.io/nehgupta/petclinic:1.0.0 (Red Hat UBI 8)
-- **Replicas:** 2 (for high availability)
-- **Port:** 8080
-- **Memory Request:** 256Mi | Limit: 512Mi
-- **CPU Request:** 250m | Limit: 500m
+- **Java:** OpenJDK 17
+- **DDL Strategy:** `ddl-auto=update` (creates schema, preserves data)
+- **Data Seeding:** Auto-seeds 50+ records on first deployment
+- **Health Check:** `/actuator/health` (liveness + readiness)
 
-### Networking
-- **Service:** petclinic-service (ClusterIP) - internal communication
-- **Route:** petclinic-route (OpenShift Route) - external access
-- **Hostname:** Auto-generated by OpenShift (no hardcoding = works in any cluster)
+### Storage Classes
+- **Source (4.14 - AWS):** `gp3-csi`
+- **Target (4.20 - On-Prem):** `ocs-external-storagecluster-ceph-rbd-immediate` (update in YAML)
 
-### Security
-- **ServiceAccount:** petclinic-app
-- **Role:** petclinic-app-role (access to ConfigMap/Secret)
-- **RoleBinding:** petclinic-app-rolebinding
-- **Security Context:** Non-root user, dropped all capabilities
+## Data Model
 
----
+### Owner (10 records)
+- ID, First Name, Last Name, Address, City, Telephone
 
-## Making Changes to Application
+### Pet (12 records)
+- ID, Name, Birth Date, Owner ID, Pet Type
 
-### If You Need to Update Application Code
+### Vet (6 records)
+- ID, First Name, Last Name, Specialty
 
-1. **Make changes** in your local repo
-2. **Commit and push** to Git:
-   ```bash
-   git add .
-   git commit -m "Your changes"
-   git push origin main
-   ```
+### Visit (12 records)
+- ID, Date, Description, Pet ID, Vet ID
 
-3. **Rebuild Docker image** (only if code changed):
-   ```bash
-   podman build --platform linux/amd64 -f Dockerfile-OpenShift -t petclinic:1.0.0 .
-   podman tag petclinic:1.0.0 quay.io/nehgupta/petclinic:1.0.0
-   podman push quay.io/nehgupta/petclinic:1.0.0
-   ```
+### Pet Type (5 records)
+- Dog, Cat, Bird, Rabbit, Hamster
 
-4. **Restart deployment** in OpenShift:
-   ```bash
-   oc rollout restart deployment/petclinic-app -n petclinic-demo
-   
-   # Wait for new pods with updated image
-   oc rollout status deployment/petclinic-app -n petclinic-demo
-   ```
+## Key Features
 
-### If You Only Updated Configuration (No Code Changes)
-
-```bash
-# Just update the ConfigMap in cluster
-oc apply -f k8s/k8s-app.yaml
-
-# Restart app pods to pick up new config
-oc rollout restart deployment/petclinic-app -n petclinic-demo
+### ✅ Data Persistence
+```yaml
+spring.jpa.hibernate.ddl-auto=update  # Never drops tables
 ```
+- Creates schema on first startup
+- Updates schema on subsequent runs
+- **Preserves data across pod restarts and migrations**
 
-### If You Only Updated Kubernetes Manifests
-
-```bash
-# Reapply updated manifests
-oc apply -f k8s/
-
-# Verify changes
-oc get all -n petclinic-demo
+### ✅ Auto-Seeding
+```java
+if (ownerRepository.count() == 0) {
+    initializeData();  // Seeds only on first deployment
+}
 ```
+- Seeds 50+ records automatically
+- Skips seeding on subsequent restarts
+- No manual data loading needed
 
----
+### ✅ Kubernetes Integration
+- Labels: `app.kubernetes.io/name: petclinic` (for topology grouping)
+- Security Context: `runAsNonRoot: true`
+- RBAC: Minimal permissions for pod
+- Anti-affinity: Spreads replicas across nodes
+
+### ✅ Migration Ready
+- No hardcoded hostnames (Route auto-generates)
+- Configurable database URL
+- Storage class agnostic (set in k8s-complete.yaml)
+- OADP backup/restore workflow
 
 ## Troubleshooting
 
-### Problem: Pod in CrashLoopBackOff
+### Pod in CrashLoopBackOff
 ```bash
-# Check application logs
-oc logs deployment/petclinic-app -n petclinic-demo --tail=50
+# Check logs
+oc logs deployment/petclinic-app -n petclinic-demo
 
-# Common causes:
-# 1. Database not ready yet → wait 2-3 minutes
-# 2. Database connection error → check postgres logs
-# 3. Image not found → verify image was pushed to registry
+# Common issues:
+# 1. Database doesn't exist
+oc exec deployment/postgres -n petclinic-demo -- psql -U postgres -c "CREATE DATABASE petclinic;"
+
+# 2. Tables don't exist (wrong ddl-auto setting)
+# Update k8s/petclinic-complete.yaml and reapply
+
+# 3. Can't connect to postgres
+oc exec deployment/petclinic-app -n petclinic-demo -- nc -zv postgres 5432
 ```
 
-### Problem: Can't Access Application (Connection Refused)
+### PVC Stuck in Pending
 ```bash
-# Check if all pods are running
-oc get pods -n petclinic-demo
+# Check storage classes
+oc get storageclass
 
-# Check if pods are ready (should show 1/1)
-oc describe pod <pod-name> -n petclinic-demo
+# Update k8s/petclinic-complete.yaml with correct storage class name
+# For AWS: gp3-csi
+# For On-Prem: ocs-external-storagecluster-ceph-rbd-immediate
 
-# Check service is created
-oc get svc petclinic-service -n petclinic-demo
-
-# Check route is created
-oc get route petclinic-route -n petclinic-demo
+# Reapply
+oc apply -f k8s/petclinic-complete.yaml
 ```
 
-### Problem: Database Connection Error
+### OADP Backup Fails
 ```bash
-# Check PostgreSQL pod status
-oc get pods -n petclinic-demo | grep postgres
+# Verify OADP is installed
+oc get pods -n openshift-adp
 
-# Check PostgreSQL logs
-oc logs deployment/postgres -n petclinic-demo --tail=50
+# Check backup storage location
+oc get backupstoragelocation -n openshift-adp
 
-# Verify database was created
-oc exec deployment/postgres -n petclinic-demo -- psql -U postgres -c "\l"
-
-# Verify tables exist
-oc exec deployment/postgres -n petclinic-demo -- psql -U postgres -d petclinic -c "\dt"
+# View backup errors
+oc describe backup -n openshift-adp migration-backup
 ```
 
-### Problem: No Data Visible in Application
+## Deployment Variants
+
+### Source Cluster (4.14)
 ```bash
-# Check if data was seeded
+# Use AWS storage class
+oc apply -f k8s/petclinic-complete.yaml
+```
+
+### Target Cluster (4.20)
+```bash
+# Edit k8s/petclinic-complete.yaml
+# Change: storageClassName: gp3-csi
+# To: storageClassName: ocs-external-storagecluster-ceph-rbd-immediate
+
+# Then deploy
+oc apply -f k8s/petclinic-complete.yaml
+```
+
+## API Endpoints
+
+Once deployed, access via the Route:
+
+- **List Owners:** `GET /owners`
+- **Add Owner:** `POST /owners`
+- **List Pets:** `GET /pets`
+- **List Vets:** `GET /vets`
+- **List Visits:** `GET /visits`
+- **Health:** `GET /actuator/health`
+- **Metrics:** `GET /actuator/metrics`
+
+## Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `JAVA_OPTS` | `-Xms256m -Xmx512m` | JVM memory settings |
+| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://postgres:5432/petclinic` | Database URL |
+| `SPRING_DATASOURCE_USERNAME` | `postgres` | DB username |
+| `SPRING_DATASOURCE_PASSWORD` | `petclinicpwd` | DB password |
+
+## Migration Workflow
+
+### Step 1: Backup on Source (4.14)
+```bash
+oc apply -f oadp/source-dpa.yaml
+oc create -f oadp/migration-backup.yaml
+```
+
+### Step 2: Switch to Target (4.20)
+```bash
+oc login --server=TARGET_SERVER
+```
+
+### Step 3: Restore on Target (4.20)
+```bash
+oc apply -f oadp/target-dpa.yaml
+oc apply -f oadp/target-restore.yaml
+```
+
+### Step 4: Verify
+```bash
+oc get all -n petclinic-demo
+oc exec deployment/postgres -n petclinic-demo -- psql -U postgres -d petclinic -c "SELECT COUNT(*) FROM owner;"
+```
+
+## Testing Data Persistence
+
+```bash
+# Check current count
 oc exec deployment/postgres -n petclinic-demo -- psql -U postgres -d petclinic -c "SELECT COUNT(*) FROM owner;"
 
-# If count is 0, data initializer runs on app startup
-# Wait 1-2 minutes and refresh browser
+# Restart pods
+oc delete pods -l app.kubernetes.io/name=petclinic -n petclinic-demo
 
-# Check app logs for initialization message
-oc logs deployment/petclinic-app -n petclinic-demo | grep -i "initializ"
+# Check again - count should be SAME!
+oc exec deployment/postgres -n petclinic-demo -- psql -U postgres -d petclinic -c "SELECT COUNT(*) FROM owner;"
 ```
 
----
+## Topology View
 
-## Key Files in Repository
+In OpenShift Console → Topology:
+- All 3 components (PostgreSQL, Redis, Petclinic App) grouped under **one application** `petclinic`
+- Connections shown between services
+- Resource status visible at a glance
 
-```
-petclinic/
-├── README.md                      # This deployment guide
-├── pom.xml                        # Maven dependencies
-├── Dockerfile-OpenShift           # Multi-stage Docker build
-│
-├── src/
-│   └── main/
-│       ├── java/org/acme/petclinic/
-│       │   ├── PetclinicApplication.java
-│       │   ├── DataInitializer.java
-│       │   ├── entities/
-│       │   ├── repositories/
-│       │   └── resources/
-│       └── resources/
-│           ├── application.properties
-│           └── static/index.html
-│
-└── k8s/
-    ├── k8s-namespace.yaml
-    ├── k8s-pvc.yaml
-    ├── k8s-postgres.yaml
-    ├── k8s-app.yaml
-    ├── k8s-serviceaccount.yaml
-    └── k8s-route.yaml
-```
+## Performance
 
----
+- **App Memory:** 256Mi (requests) / 512Mi (limits)
+- **App CPU:** 250m (requests) / 500m (limits)
+- **Startup Time:** ~30 seconds
+- **Data Seeding Time:** ~5 seconds (first run only)
 
-## Cleanup (Remove from OpenShift)
+## Production Recommendations
 
-```bash
-# Delete entire namespace
-oc delete namespace petclinic-demo
-```
+1. ✅ Use `ddl-auto=update` (never use `create`)
+2. ✅ Enable OADP backups (daily or after changes)
+3. ✅ Use storage class appropriate to your infrastructure
+4. ✅ Scale replicas to 2+ for HA
+5. ✅ Monitor logs and metrics via Prometheus
+6. ✅ Use Secrets for sensitive data (not ConfigMaps)
+7. ✅ Enable network policies to restrict traffic
 
----
+## License
 
-## Ready for Migration Demo
+MIT
 
-- ✅ **Stateless Migration (MTC)** - Application pods
-- ✅ **Stateful Migration (OADP)** - Database with data
-- ✅ **Multi-cluster Migration** - Auto-generated hostnames
+## Support
 
----
+For questions or issues, check:
+- OpenShift documentation: https://docs.openshift.com/
+- Spring Boot documentation: https://spring.io/projects/spring-boot
+- OADP documentation: https://docs.openshift.com/container-platform/latest/backup_and_restore/index.html
 
-**Version:** 1.0.0 | **OpenShift:** 4.16+ | **Spring Boot:** 3.1.5 | **PostgreSQL:** 16
+## Migration Checklist
+
+- [ ] Source cluster backup created and verified
+- [ ] Target cluster prepared with OADP
+- [ ] Storage class mapping configured
+- [ ] Backup restored on target cluster
+- [ ] All pods running on target
+- [ ] Data verified (SELECT COUNT(*) matches)
+- [ ] Application accessible via route
+- [ ] Data persists after pod restart
