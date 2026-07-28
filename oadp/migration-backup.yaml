@@ -1,7 +1,7 @@
 apiVersion: velero.io/v1
 kind: Backup
 metadata:
-  name: petclinic-migration
+  name: petclinic-app-backup
   namespace: openshift-adp
   labels:
     velero.io/storage-location: velero-1

@@ -1,13 +1,15 @@
 apiVersion: velero.io/v1
 kind: Restore
 metadata:
-  name: petclinic-migration
+  name: petclinic-app-restore-diff-ns
   namespace: openshift-adp
 spec:
-  backupName: petclinic-migration # Explicitly links to the clean backup name
+  backupName: petclinic-app-backup
   includedNamespaces:
     - petclinic-demo
-  restorePVs: true                # Injects the S3 data blocks straight into your new ODF volumes
+  namespaceMapping:
+    petclinic-demo: petclinic-restored-prod # CRITICAL: Maps old namespace -> new different namespace
+  restorePVs: true                         # Streams data blocks straight into your ODF Ceph storage
   preserveNodePorts: true
   excludedResources:
     - nodes

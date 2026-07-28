@@ -4,7 +4,7 @@ metadata:
   name: petclinic-local-test
   namespace: openshift-adp
 spec:
-  backupName: petclinic-migration        # Links exactly to your clean backup name
+  backupName: petclinic-app-backup        # CRITICAL FIX: Links to your successful completed backup
   includedNamespaces:
     - petclinic-demo
   namespaceMapping:
