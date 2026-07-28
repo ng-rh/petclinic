@@ -1,0 +1,23 @@
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: petclinic-local-test
+  namespace: openshift-adp
+spec:
+  backupName: petclinic-migration        # Links exactly to your clean backup name
+  includedNamespaces:
+    - petclinic-demo
+  namespaceMapping:
+    petclinic-demo: petclinic-restored-test # Maps source namespace -> target test namespace
+  restorePVs: true                        # Pulls Kopia file-system blocks into fresh volumes
+  preserveNodePorts: true
+  excludedResources:
+    - nodes
+    - events
+    - events.events.k8s.io
+    - backups.velero.io
+    - restores.velero.io
+    - resticrepositories.velero.io
+    - csinodes.storage.k8s.io
+    - volumeattachments.storage.k8s.io
+    - backuprepositories.velero.io

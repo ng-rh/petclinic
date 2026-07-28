@@ -1,0 +1,28 @@
+apiVersion: oadp.openshift.io/v1alpha1
+kind: DataProtectionApplication
+metadata:
+  name: velero
+  namespace: openshift-adp
+spec:
+  backupLocations:
+    - velero:
+        config:
+          profile: default
+          region: eu-north-1
+        credential:
+          key: cloud
+          name: cloud-credentials # Ensure this secret with S3 keys is created on the target cluster first
+        default: true
+        objectStorage:
+          bucket: oadp-backup-bucket-openshift
+          prefix: velero
+        provider: aws
+  configuration:
+    nodeAgent:
+      enable: true
+      uploaderType: kopia
+    velero:
+      defaultPlugins:
+        - openshift
+        - csi # Required to talk to the ODF storage engine during restore
+  logFormat: text

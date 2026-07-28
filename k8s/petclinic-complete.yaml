@@ -1,0 +1,427 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+---
+# PVC for PostgreSQL
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: petclinic-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3-csi
+  resources:
+    requests:
+      storage: 5Gi
+---
+# PostgreSQL ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: petclinic-app
+data:
+  POSTGRES_DB: petclinic
+  POSTGRES_USER: postgres
+---
+# PostgreSQL Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: petclinic-app
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: petclinicpwd
+---
+# PostgreSQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: petclinic-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: petclinic
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: petclinic
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: petclinic-app
+    spec:
+      containers:
+      - name: postgres
+        image: registry.redhat.io/rhel8/postgresql-16:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRESQL_DATABASE
+          value: petclinic
+        - name: POSTGRESQL_USER
+          value: postgres
+        - name: POSTGRESQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/pgsql/data
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - pg_isready -U postgres
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - pg_isready -U postgres
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: petclinic-app
+spec:
+  selector:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: database
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: postgres
+  type: ClusterIP
+---
+# Redis Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: petclinic-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: petclinic
+      app.kubernetes.io/component: cache
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: petclinic
+        app.kubernetes.io/component: cache
+        app.kubernetes.io/part-of: petclinic-app
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+        livenessProbe:
+          tcpSocket:
+            port: redis
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: redis
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+# Redis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: petclinic-app
+spec:
+  selector:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: cache
+  ports:
+  - protocol: TCP
+    port: 6379
+    targetPort: redis
+  type: ClusterIP
+---
+# App ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: petclinic-app
+data:
+  application.properties: |
+    spring.application.name=petclinic-migration-demo
+    server.port=8080
+    server.servlet.context-path=/
+    spring.datasource.url=jdbc:postgresql://postgres:5432/petclinic
+    spring.datasource.username=postgres
+    spring.datasource.password=petclinicpwd
+    spring.datasource.driver-class-name=org.postgresql.Driver
+    spring.jpa.database-platform=org.hibernate.dialect.PostgreSQLDialect
+    spring.jpa.hibernate.ddl-auto=validate
+    spring.jpa.show-sql=false
+    logging.level.root=INFO
+    logging.level.org.acme.petclinic=DEBUG
+    management.endpoints.web.exposure.include=health,info,metrics
+    management.endpoint.health.show-details=always
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: petclinic-app
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: petclinic-app
+---
+# Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: petclinic-app
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: petclinic-app
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list"]
+---
+# RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: petclinic-app
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: petclinic-app
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: petclinic-app
+subjects:
+- kind: ServiceAccount
+  name: petclinic-app
+  namespace: petclinic-demo
+---
+# Petclinic App Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: petclinic-app
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: petclinic-app
+    app.kubernetes.io/version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: petclinic
+      app.kubernetes.io/component: application
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: petclinic
+        app.kubernetes.io/component: application
+        app.kubernetes.io/part-of: petclinic-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      serviceAccountName: petclinic-app
+      securityContext:
+        runAsNonRoot: true
+      containers:
+      - name: petclinic
+        image: quay.io/nehgupta/petclinic:v1
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: JAVA_OPTS
+          value: "-Xms256m -Xmx512m"
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      terminationGracePeriodSeconds: 30
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                  - petclinic
+              topologyKey: kubernetes.io/hostname
+---
+# Petclinic Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: petclinic-service
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: petclinic-app
+spec:
+  selector:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: application
+  ports:
+  - name: http
+    protocol: TCP
+    port: 8080
+    targetPort: http
+  type: ClusterIP
+  sessionAffinity: None
+---
+# Route
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: petclinic-route
+  namespace: petclinic-demo
+  labels:
+    app.kubernetes.io/name: petclinic
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: petclinic-app
+spec:
+  to:
+    kind: Service
+    name: petclinic-service
+    weight: 100
+  port:
+    targetPort: http
+  wildcardPolicy: None

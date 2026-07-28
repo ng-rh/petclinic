@@ -1,0 +1,14 @@
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: petclinic-migration
+  namespace: openshift-adp
+  labels:
+    velero.io/storage-location: velero-1
+spec:
+  includedNamespaces:
+    - petclinic-demo
+  storageLocation: velero-1
+  defaultVolumesToFsBackup: true     
+  snapshotMoveData: false            
+  ttl: 720h0m0s

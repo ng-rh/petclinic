@@ -1,0 +1,21 @@
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: petclinic-migration
+  namespace: openshift-adp
+spec:
+  backupName: petclinic-migration # Explicitly links to the clean backup name
+  includedNamespaces:
+    - petclinic-demo
+  restorePVs: true                # Injects the S3 data blocks straight into your new ODF volumes
+  preserveNodePorts: true
+  excludedResources:
+    - nodes
+    - events
+    - events.events.k8s.io
+    - backups.velero.io
+    - restores.velero.io
+    - resticrepositories.velero.io
+    - csinodes.storage.k8s.io
+    - volumeattachments.storage.k8s.io
+    - backuprepositories.velero.io
